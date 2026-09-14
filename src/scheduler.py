@@ -68,7 +68,10 @@ def run_loop(
             iterations += 1
             if reload is not None:
                 alarms[:] = reload()
-            if alarms and all(a.get("fired") for a in alarms):
+            # Exit when there is nothing left to fire: either every alarm has
+            # fired, or the store is empty. Without this, an empty store loops
+            # forever (next_fire returns None and the loop just naps).
+            if not alarms or all(a.get("fired") for a in alarms):
                 return
             soonest = next_fire(alarms)
             if soonest is None:

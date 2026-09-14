@@ -172,34 +172,53 @@ def cmd_clear_all(args: argparse.Namespace) -> None:
 
 
 def cmd_wait(args: argparse.Namespace) -> None:
-    """Run the scheduler loop until all alarms fire or Ctrl-C."""
+    """Run the scheduler loop until all alarms fire or Ctrl-C.
+
+    The store is re-read each tick, so alarms scheduled from another process
+    (or from ``alarm ctl``) are picked up and fired even while ``wait`` is
+    sleeping. The loop exits once the store has no pending alarms left.
+    """
     path = args.store or default_store_path("alarm")
-    alarms = list_alarms(store=path)
 
     def on_fire(alarm: dict) -> None:
         notify(alarm.get("message") or "(no message)", sound=bool(alarm.get("sound")))
-        alarm["fired"] = True
-        save_alarms(path, alarms)
+        # Re-read the store before saving so an alarm added by another process
+        # after the last reload is not clobbered by this stale in-memory list.
+        current = load_alarms(path)
+        for a in current:
+            if a.get("id") == alarm.get("id"):
+                a["fired"] = True
+        save_alarms(path, current)
 
-    # run_loop returns once every alarm has fired (or on Ctrl-C). It never
-    # raises KeyboardInterrupt out of the loop, so no traceback on exit.
-    run_loop(alarms, on_fire, poll_interval=1.0)
+    # Reload the store each tick: a new alarm scheduled externally becomes the
+    # soonest and the loop sleeps only until it is due. ``wait`` exits when the
+    # store has no unfired alarms remaining.
+    run_loop(
+        [],
+        on_fire,
+        poll_interval=1.0,
+        reload=lambda: load_alarms(path),
+    )
 
 
 def _daemon_loop(path: str) -> None:
     """Block forever, firing alarms as they come due. Used by ``alarm ctl``."""
-    alarms = load_alarms(path)
 
     def on_fire(alarm: dict) -> None:
         notify(alarm.get("message") or "(no message)", sound=bool(alarm.get("sound")))
-        alarm["fired"] = True
-        save_alarms(path, alarms)
+        # Re-read before saving so an alarm added by another process after the
+        # last reload is not clobbered by this stale in-memory list.
+        current = load_alarms(path)
+        for a in current:
+            if a.get("id") == alarm.get("id"):
+                a["fired"] = True
+        save_alarms(path, current)
 
     # Reload the store each tick so alarms scheduled from the interactive
     # terminal (or another process) are picked up and fired. on_fire persists
-    # the in-memory list, so the fired flag survives the next reload.
+    # the freshly-read list, so the fired flag survives the next reload.
     run_loop(
-        alarms,
+        [],
         on_fire,
         poll_interval=0.5,
         max_iterations=None,
