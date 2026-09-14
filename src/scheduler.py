@@ -63,11 +63,15 @@ def run_loop(
     When ``reload`` is given, the alarms list is refreshed each tick — this lets
     a long-running daemon pick up alarms scheduled by another process.
 
-    ``idle`` controls what happens when the store is empty:
+    ``idle`` controls what happens when there is nothing left to fire:
 
     - ``"exit"`` (default): the loop returns. Use this for ``wait``.
     - ``"poll"``: the loop keeps sleeping and re-reading. Use this for a
       daemon that must stay alive until alarms are scheduled later.
+    
+    This applies both when the store is empty and when every alarm has fired.
+    A daemon never exits on store state; it stops only on Ctrl-C or
+    ``ctl stop``.
     """
     iterations = 0
     try:
@@ -76,7 +80,12 @@ def run_loop(
             if reload is not None:
                 alarms[:] = reload()
             if alarms and all(a.get("fired") for a in alarms):
-                return
+                # All alarms fired. ``wait`` is done; a daemon must stay alive
+                # in case new alarms are scheduled later, so it keeps polling.
+                if idle == "exit":
+                    return
+                time.sleep(poll_interval)
+                continue
             if not alarms:
                 # An empty store means nothing to fire. ``wait`` exits; a daemon
                 # that must stay alive keeps polling for alarms scheduled later.
