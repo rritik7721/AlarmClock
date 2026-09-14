@@ -15,16 +15,20 @@ pip install -e .
 
 This installs the `alarm` console command. The package is pure Python 3.10+.
 
+**No install needed to try it.** The alarm code uses only the Python standard
+library, so `python src/cli.py ...` works on any computer with Python 3.10+ —
+with or without a virtualenv, on Linux, macOS, or Windows.
+
 ## Run it
 
 ```bash
 alarm --help
 ```
 
-Any of these work:
+Any of these work, from any directory:
 
 ```bash
-python src/cli.py add --in 1m --message hi     # direct script
+python src/cli.py add --in 1m --message hi     # direct script, no install
 python -m cli add --in 1m --message hi        # from the src/ directory
 alarm add --in 1m --message hi                # installed command
 ```
