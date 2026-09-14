@@ -95,7 +95,9 @@ alarm ctl stop
 
 The daemon reloads the store each tick, so alarms scheduled from the interactive
 terminal are picked up and fired. `exit` detaches rather than kills it; use
-`ctl stop` to stop it.
+`ctl stop` to stop it. The daemon polls every 0.5s, so a nearer alarm scheduled
+while it is sleeping is discovered quickly — but if the current alarm is more
+than 0.5s away, a nearer one can still be up to ~0.5s late.
 
 ## Store
 
@@ -106,6 +108,27 @@ Alarms persist to a JSON file, one per invocation:
 - Override with `--store PATH` or the `ALARM_STORE_DIR` environment variable.
 
 Writes are atomic (write to a temp file, then `os.replace`).
+
+## Caveats
+
+- **Timing precision.** The scheduler is a plain synchronous loop with
+  `time.sleep` — no event loop, no async, no threads. Alarms fire at or after
+  their scheduled time, never early. The sleep is capped at 60 seconds and
+  re-evaluated each tick, so a nearer alarm scheduled while the process is
+  sleeping is discovered on the next wake and fires before the previously
+  scheduled one. If the current alarm is more than a minute away, a nearer one
+  added during that sleep can be up to ~60 seconds late. For sub-second
+  precision use `ctl` (0.5s poll).
+- **`wait` exits when the store is empty.** It re-reads the store each tick, so
+  alarms scheduled externally while it is running are picked up and fired.
+  `wait` on an empty store exits immediately rather than looping.
+- **Sound degrades gracefully.** `--sound` tries `aplay`, then `ffplay`, then
+  Windows `winsound.MessageBeep`, then the terminal bell. It never crashes if
+  no audio backend is available — so it works on headless machines, SSH, and
+  CI.
+- **`wait` is single-threaded.** One process, one loop. If you need alarms to
+  keep firing after the scheduling shell closes, use `ctl` (the daemon
+  detaches on `exit`).
 
 ## Layout
 
@@ -123,7 +146,9 @@ Plain functions throughout, no classes, no third-party dependencies.
 
 ## Notes
 
-- `wait` blocks until all alarms fire; Ctrl-C exits cleanly with no traceback.
+- `wait` blocks until the store has no pending alarms left; it re-reads the
+  store each tick, so externally-scheduled alarms are picked up mid-run.
+  Ctrl-C exits cleanly with no traceback.
 - `--sound` shells out to an audio player; without it the alarm is pure Python
   plus a terminal escape code, so it works on headless machines, SSH, and CI.
 - The original three-type design (cron-based, pure-Python, and Textual TUI
