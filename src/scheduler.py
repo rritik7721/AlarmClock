@@ -52,6 +52,7 @@ def run_loop(
     poll_interval: float = 1.0,
     max_iterations: Optional[int] = None,
     reload: Optional[Callable[[], list[dict]]] = None,
+    idle: str = "exit",
 ) -> None:
     """Block until every alarm has fired (or ``max_iterations`` ticks).
 
@@ -61,6 +62,12 @@ def run_loop(
 
     When ``reload`` is given, the alarms list is refreshed each tick — this lets
     a long-running daemon pick up alarms scheduled by another process.
+
+    ``idle`` controls what happens when the store is empty:
+
+    - ``"exit"`` (default): the loop returns. Use this for ``wait``.
+    - ``"poll"``: the loop keeps sleeping and re-reading. Use this for a
+      daemon that must stay alive until alarms are scheduled later.
     """
     iterations = 0
     try:
@@ -68,11 +75,15 @@ def run_loop(
             iterations += 1
             if reload is not None:
                 alarms[:] = reload()
-            # Exit when there is nothing left to fire: either every alarm has
-            # fired, or the store is empty. Without this, an empty store loops
-            # forever (next_fire returns None and the loop just naps).
-            if not alarms or all(a.get("fired") for a in alarms):
+            if alarms and all(a.get("fired") for a in alarms):
                 return
+            if not alarms:
+                # An empty store means nothing to fire. ``wait`` exits; a daemon
+                # that must stay alive keeps polling for alarms scheduled later.
+                if idle == "exit":
+                    return
+                time.sleep(poll_interval)
+                continue
             soonest = next_fire(alarms)
             if soonest is None:
                 time.sleep(poll_interval)

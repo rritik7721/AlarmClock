@@ -217,12 +217,15 @@ def _daemon_loop(path: str) -> None:
     # Reload the store each tick so alarms scheduled from the interactive
     # terminal (or another process) are picked up and fired. on_fire persists
     # the freshly-read list, so the fired flag survives the next reload.
+    # idle="poll" keeps the daemon alive when the store is empty, so alarms
+    # scheduled later are still fired.
     run_loop(
         [],
         on_fire,
         poll_interval=0.5,
         max_iterations=None,
         reload=lambda: load_alarms(path),
+        idle="poll",
     )
 
 
@@ -291,7 +294,11 @@ def _ctl_start(args: argparse.Namespace) -> None:
 
 
 def _interactive_loop(path: str) -> None:
-    """Read commands from stdin until 'exit'."""
+    """Read commands from stdin until 'exit'.
+
+    Every command runs with the same store path the daemon is watching, so
+    ``ctl status`` and ``ctl stop`` find the daemon's pid file.
+    """
     parser = build_parser()
     while True:
         try:
@@ -307,6 +314,8 @@ def _interactive_loop(path: str) -> None:
             ns = parser.parse_args(shlex.split(line))
         except SystemExit:
             continue
+        # Inherit the daemon's store path so status/stop find its pid file.
+        ns.store = path
         try:
             ns.func(ns)
         except ValueError as exc:
